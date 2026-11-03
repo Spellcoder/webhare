@@ -39,9 +39,6 @@ PUBLIC OBJECTTYPE ManagedTagedit EXTEND TolliumFragmentBase <
   /// Value (list of tag fsobjectids)
   UPDATE PUBLIC PROPERTY value(GetValue, SetValue);
 
-  /// Whether to allow multiple tags to be chosen
-  PUBLIC PROPERTY allowmultiple(this->tagedit->allowmultiple, this->tagedit->allowmultiple);
-
   /// Tag library to use
   PUBLIC PROPERTY taglibrary(pvt_taglibrary, SetTagLibrary);
 
@@ -67,7 +64,6 @@ PUBLIC OBJECTTYPE ManagedTagedit EXTEND TolliumFragmentBase <
     TolliumFragmentBase::StaticInit(def);
 
     this->title := def.title;
-    this->allowmultiple := def.allowmultiple;
     this->placeholder := def.placeholder;
     //this->onchange := def.onchange;
     this->tagedit->width := def.width;

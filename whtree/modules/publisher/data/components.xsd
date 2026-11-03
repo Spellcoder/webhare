@@ -1145,7 +1145,6 @@
       </xs:attribute>
       <xs:attribute name="autocreate" type="xs:boolean" />
       <xs:attribute name="taglibrary" type="xs:string" />
-      <xs:attribute name="allowmultiple" type="xs:boolean" />
       <xs:attribute name="placeholder" type="xs:string">
         <xs:annotation>
           <xs:documentation>
