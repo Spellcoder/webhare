@@ -2,11 +2,13 @@
 
 LOADLIB "mod::tollium/lib/componentbase.whlib";
 LOADLIB "mod::tollium/lib/screenbase.whlib";
+LOADLIB "mod::tollium/lib/yamlbase.whlib";
 
 LOADLIB "mod::system/lib/database.whlib";
 LOADLIB "mod::system/lib/whfs.whlib";
 
 LOADLIB "mod::publisher/lib/tagmanager.whlib";
+
 
 PUBLIC OBJECTTYPE ManagedTagedit EXTEND TolliumFragmentBase <
   // ---------------------------------------------------------------------------
@@ -31,6 +33,8 @@ PUBLIC OBJECTTYPE ManagedTagedit EXTEND TolliumFragmentBase <
 
   /// Title of the component
   UPDATE PUBLIC PROPERTY title(this->tagedit->title, this->tagedit->title);
+  UPDATE PUBLIC PROPERTY width(this->tagedit->width, this->tagedit->width);
+  UPDATE PUBLIC PROPERTY height(this->tagedit->height, this->tagedit->height);
 
   /// Value (list of tag fsobjectids)
   UPDATE PUBLIC PROPERTY value(GetValue, SetValue);
@@ -70,6 +74,18 @@ PUBLIC OBJECTTYPE ManagedTagedit EXTEND TolliumFragmentBase <
     this->tagedit->height := def.height;
     this->autocreate := def.autocreate;
     this->pvt_taglibrary := def.taglibrary;
+  }
+
+  UPDATE PUBLIC MACRO SetYamlProps(RECORD props)
+  {
+    // NOTE: We pass the "title", "width" and "height" to the <tagedit> component.
+    //       However <tagedit> currently ignores the title and height setting.
+    ApplyYAMLPropsDirectly(this, props, CELL["title", "width", "height", "placeholder", "taglibrary"]);
+
+    IF (CellExists(props, "auto_create"))
+      this->autocreate := props.auto_create;
+
+    TolliumFragmentBase::SetYamlProps(props);
   }
 
   UPDATE MACRO PreInitComponent()
