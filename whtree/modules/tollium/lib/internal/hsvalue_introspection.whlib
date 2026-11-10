@@ -100,6 +100,7 @@ PUBLIC STATIC OBJECTTYPE HSValueDescriber
 
   /// Descriptions of all seen objects
   RECORD ARRAY seenobjects_recs;
+  INTEGER ARRAY objectids_described; /// id's of object which are or will be described (to prevent circular references causing troubles)
 
   /** gather extra information on known OBJECTTYPE's such as:
         - WRDSCHEMA
@@ -354,56 +355,66 @@ PUBLIC STATIC OBJECTTYPE HSValueDescriber
         , weak   := weak // if TRUE, this reference is not refcounted for garbage collection
         ];
 
-    RECORD seen := SELECT * FROM this->seenobjects_recs WHERE id = objectdescription.id;
-    //IF(value IN this->seenobjects)
-    IF (RecordExists(seen)
-        AND (NOT CellExists(seen, "cutoff") // maybe this time the OBJECT wasn't too deep, let's retry
-             OR level <= this->debug->maxtreedepth
-             OR seen.cutoff != "toodeep"
-            )
-       )
-    {
-      // return the reference
-      RETURN reference;
-    }
 
-    // insert the ID in our list of seen objects BEFORE creating the definition,
-    // so while recursing through the OBJECT we don't trying to reparse/recurse into the same OBJECT again
-    INSERT value INTO this->seenobjects AT END;
+    BOOLEAN fully_described_already := objectdescription.id IN this->objectids_described;
 
+    IF (fully_described_already)
+      RETURN reference; // since it's already fully described (or will be if this is a nested object), there's nothing more to do
+
+
+    // Do we have an incomplete description?
+    // (due to us having skipped it because it was too deeply nested or on the list of objecttypes we want to ignore)
+    RECORD currentDescription := SELECT * FROM this->seenobjects_recs WHERE id = objectdescription.id;
+
+    /*
+    Keep a list of all objects we encountered for these reasons:
+    1. to ensure upon circular references while we are still creating the description of this object,
+       we know this object has already been processed OR is still being processed (in case of a member within having a reference this this object or a parent)
+    2. for future expansion to be able to walk through specific object types instead of the tree
+    */
+    IF (NOT RecordExists(currentDescription))
+      INSERT value INTO this->seenobjects AT END;
+
+
+    BOOLEAN too_deep := level > this->debug->maxtreedepth;
+
+
+
+    // Whe'll always count a DEFAULT OBJECT as being fully described (regardless of it's level and whether content of this objecttype is set to be hidden)
     IF (NOT ObjectExists(value))
     {
       INSERT objectdescription INTO this->seenobjects_recs AT END;
+      INSERT objectdescription.id INTO this->objectids_described AT END;
       RETURN reference;
     }
 
+    // If the OBJECT is found too deep, don't describe it
     IF (level > this->debug->maxtreedepth)
     {
-      // too deep, don't describe
-      INSERT CELL cutoff := "toodeep" INTO objectdescription;
-      INSERT objectdescription INTO this->seenobjects_recs AT END;
+      IF (NOT RecordExists(currentDescription))
+        INSERT CELL[ ...objectdescription, cutoff := "toodeep" ] INTO this->seenobjects_recs AT END;
+
       RETURN reference;
     }
-
-
 
     // Don't store content information if this OBJECT is derived from one of the OBJECTTYPES in our blacklist
     IF (level > 1 AND ArraysIntersect(objectdescription.typenames, this->debug->hide_objecttypes))
     {
-      INSERT CELL cutoff := "hiddentype" INTO objectdescription;
       INSERT value INTO this->seenobjects AT END;
-      INSERT objectdescription INTO this->seenobjects_recs AT END;
+
+      IF (NOT RecordExists(currentDescription))
+        INSERT CELL[ ...objectdescription, cutoff := "hiddentype" ] INTO this->seenobjects_recs AT END;
+
       RETURN reference;
     }
 
-    IF (RecordExists(seen))
-    {
-      //PRINT("Redoing object description");
 
-      // The object was already described (but incomplete last time)
-      // Throw away the object description, because this time whe'll make a complete description
-      DELETE FROM this->seenobjects_recs WHERE id = objectdescription.id;
-    }
+
+    // Add thie id of the object to our list
+    // so we know we don't have make a new description for it
+    // (because it's either already described or we are in the process of making the description (in case of a circular reference))
+    INSERT objectdescription.id INTO this->objectids_described AT END;
+
 
     IF (this->gathermetadata)
     {
@@ -472,12 +483,25 @@ PUBLIC STATIC OBJECTTYPE HSValueDescriber
       }
     }
 
+
+
+    IF (RecordExists(currentDescription))
+    {
+      // The object was already described (but incomplete last time because for the previous time we encountered it,
+      // it was deemed unnecessary to describe it - probably because it was too deep)
+      // Throw away the object description, because this time whe'll make a complete description.
+      DELETE FROM this->seenobjects_recs WHERE id = objectdescription.id;
+    }
+
+
+
     IF (ArraysIntersect(objectdescription.typenames, this->debug->hidemembersforobjecttypes))
     {
       INSERT CELL membershidden := TRUE INTO objectdescription;
       INSERT objectdescription INTO this->seenobjects_recs AT END;
       RETURN reference;
     }
+
 
 
 
@@ -524,6 +548,7 @@ PUBLIC STATIC OBJECTTYPE HSValueDescriber
     }
 
     INSERT objectdescription INTO this->seenobjects_recs AT END;
+//abort(CELL[ reference, objectdescription ]);
 
     RETURN reference;
   }
@@ -674,7 +699,6 @@ PUBLIC STATIC OBJECTTYPE HSValueDumper
   BOOLEAN is_description;
 
   /// List of already seen objects
-  OBJECT ARRAY seenobjects;
   INTEGER ARRAY seenobjectids;
 
   /// Whether only ui objects should be shown
@@ -746,7 +770,6 @@ PUBLIC STATIC OBJECTTYPE HSValueDumper
   STRING FUNCTION DumpTypeStart(STRING name, VARIANT value, INTEGER level, BOOLEAN isprivate, INTEGER arrindex)
   {
     this->currentvalue := value;
-    this->seenobjects := DEFAULT OBJECT ARRAY;
     this->seenobjectids := DEFAULT INTEGER ARRAY;
 
     IF (NOT this->forceshowraw AND this->IsDescribedValue(value))
@@ -1116,6 +1139,8 @@ PUBLIC STATIC OBJECTTYPE HSValueDumper
           haschildren := TRUE;
           expanded := level < this->expandlevel;
 
+          // Objects which have a "objtype" cell get their original content in value.elements
+          // (while other objects are stored in this->currentvalue.objects and are found by their (object)id)
           IF(CellExists(value, "objtype")) //newly decoded objects eg JSONObject
           {
             typename := value.objtype;
@@ -1148,10 +1173,9 @@ PUBLIC STATIC OBJECTTYPE HSValueDumper
                        , expanded
                        ];
           }
-          ELSE
-          {
-            typename := value.weak ? "WEAKOBJECT" : "OBJECT";
-          }
+
+
+          typename := value.weak ? "WEAKOBJECT" : "OBJECT";
 
 
           IF (value.id = -1)
@@ -1181,6 +1205,7 @@ PUBLIC STATIC OBJECTTYPE HSValueDumper
           }
 
           RECORD objectrec := SELECT * FROM this->currentvalue.objects WHERE id = value.id;
+
           IF (NOT RecordExists(objectrec)) // this should not happen
           {
             varinfo := name || " (missing OBJECT description)";
