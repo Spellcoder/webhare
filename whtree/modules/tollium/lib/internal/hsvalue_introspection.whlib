@@ -506,7 +506,7 @@ PUBLIC STATIC OBJECTTYPE HSValueDescriber
 
 
     RECORD ARRAY unpacked := UnpackRecord(__INTERNAL_DebugCopyObjectToRecord(value));
-    //ABORT(AnyToString(unpacked,"tree"));
+
     FOREVERY(RECORD memberrec FROM unpacked)
     {
       BOOLEAN isprivate := GetMemberType(value, memberrec.name) = "PRIVATE";
@@ -548,7 +548,6 @@ PUBLIC STATIC OBJECTTYPE HSValueDescriber
     }
 
     INSERT objectdescription INTO this->seenobjects_recs AT END;
-//abort(CELL[ reference, objectdescription ]);
 
     RETURN reference;
   }
